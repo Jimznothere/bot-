@@ -1,7 +1,0 @@
-{
-  "name": "discord-crash-bot",
-  "version": "1.0.0",
-  "dependencies": {
-    "discord.js": "^14.0"
-  }
-}
